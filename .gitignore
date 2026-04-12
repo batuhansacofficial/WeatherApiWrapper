@@ -361,3 +361,18 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# App settings overrides and secrets
+appsettings.Development.json
+secrets.json
+
+# IDE settings
+.idea/
+.vscode/
+
+# Test and coverage output
+TestResults/
+coverage/
+
+# Optional local publish folder
+publish/
