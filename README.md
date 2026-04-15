@@ -1,51 +1,30 @@
 # Weather API Wrapper
 
-A simple ASP.NET Core Web API project that wraps an external weather provider and exposes normalized endpoints for current, forecast, and historical weather data.
+A resilient ASP.NET Core Web API that aggregates weather data (current, forecast, and historical) from an external provider, with Redis caching and robust error handling.
 <br>
 Project Idea: [Weather API](https://roadmap.sh/projects/weather-api-wrapper-service)
 
 ## Features
 
 - Current weather endpoint
-- Forecast weather endpoint
-- Historical weather endpoint
-- In-memory caching
-- Swagger / OpenAPI support
-- External provider integration
-- API key via User Secrets
-- Basic validation and error handling
+- Forecast (1–10 days)
+- Historical weather by date
+- Redis distributed caching (cache-aside pattern)
+- Centralized exception handling middleware
+- Standardized API error responses
+- HTTP resilience (retry, timeout, circuit breaker)
+- Request/response logging
+- Swagger/OpenAPI documentation
+- Unit and integration tests
 
 ## Tech Stack
 
-- ASP.NET Core Web API
-- .NET
-- Visual Studio
-- IMemoryCache
-- HttpClient
-- Visual Crossing Weather API
-
-## Project Structure
-
-```text
-WeatherApiWrapper/
- ├─ Controllers/
- │   └─ WeatherController.cs
- ├─ Models/
- │   ├─ ForecastDayResponse.cs
- │   ├─ ForecastResponse.cs
- │   ├─ HistoricalDayResponse.cs
- │   ├─ HistoryResponse.cs
- │   ├─ VisualCrossingResponse.cs
- │   └─ WeatherResponse.cs
- ├─ Options/
- │   └─ WeatherApiOptions.cs
- ├─ Services/
- │   ├─ IWeatherService.cs
- │   └─ WeatherService.cs
- ├─ Program.cs
- ├─ appsettings.json
- └─ WeatherApiWrapper.csproj
-```
+- ASP.NET Core Web API (.NET)
+- Redis (distributed cache)
+- HttpClient + resilience pipeline
+- xUnit + Moq (unit testing)
+- WebApplicationFactory (integration testing)
+- Docker (for Redis)
 
 ## Endpoints
 
@@ -213,33 +192,60 @@ API key is intentionally not stored in source code. Use User Secrets or environm
 
 ## Caching
 
-This project uses `IMemoryCache`.
-
-Cache strategy:
-
-* Current weather: short expiration
-* Forecast: medium expiration
-* History: longer expiration
+* Uses Redis distributed cache
+* Cache-aside pattern
+* Separate cache keys for:
+  * current weather
+  * forecast
+  * historical data
+* Supports absolute + sliding expiration
 
 ## Error Handling
 
-Typical responses:
+All errors are returned in a consistent format:
 
-* `200 OK` -> success
-* `400 Bad Request` -> invalid input
-* `404 Not Found` -> location not found
-* `500 Internal Server Error` -> parsing/configuration error
-* `502 Bad Gateway` -> external provider failure
+```json
+{
+  "statusCode": 400,
+  "message": "Validation failed.",
+  "traceId": "...",
+  "timestampUtc": "...",
+  "errors": {
+    "city": ["City is required."]
+  }
+}
+```
 
-## Future Improvements
+## Resilience
 
-* Redis distributed cache
-* Global exception middleware
-* Unified error response model
-* Logging improvements
-* Unit tests
-* Docker support
-* API versioning
+Outgoing HTTP requests include:
+
+* Retry (with jitter)
+* Timeout (per attempt + total)
+* Circuit breaker
+
+## Testing
+
+This project includes:
+
+### Unit Tests
+
+* Service cache hit/miss behavior
+* Provider error handling
+* Validation logic
+
+### Integration Tests
+
+* Full API pipeline testing
+* In-memory distributed cache
+* Mocked external provider
+* Cache behavior across requests
+
+### Run tests
+
+```bash
+dotnet test
+```
 
 ## License
 
