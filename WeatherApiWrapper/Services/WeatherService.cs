@@ -1,6 +1,6 @@
 ﻿using System.Net;
 using System.Text.Json;
-using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Options;
 using WeatherApiWrapper.Models;
 using WeatherApiWrapper.Options;
@@ -10,13 +10,18 @@ namespace WeatherApiWrapper.Services
     public class WeatherService : IWeatherService
     {
         private readonly HttpClient _httpClient;
-        private readonly IMemoryCache _cache;
+        private readonly IDistributedCache _cache;
         private readonly WeatherApiOptions _options;
         private readonly ILogger<WeatherService> _logger;
 
+        private static readonly JsonSerializerOptions JsonOptions = new()
+        {
+            PropertyNameCaseInsensitive = true
+        };
+
         public WeatherService(
             HttpClient httpClient,
-            IMemoryCache cache,
+            IDistributedCache cache,
             IOptions<WeatherApiOptions> options,
             ILogger<WeatherService> logger)
         {
@@ -37,9 +42,12 @@ namespace WeatherApiWrapper.Services
 
             var cacheKey = $"weather:current:{city.ToLowerInvariant()}";
 
-            if (_cache.TryGetValue(cacheKey, out WeatherResponse? cachedResponse) &&
-                cachedResponse is not null)
+            var cachedResponse = await GetCachedAsync<WeatherResponse>(cacheKey, cancellationToken);
+
+            if (cachedResponse is not null)
             {
+                _logger.LogInformation("Cache HIT for current weather. City: {City}", city);
+
                 return new WeatherResponse
                 {
                     City = cachedResponse.City,
@@ -54,11 +62,15 @@ namespace WeatherApiWrapper.Services
                 };
             }
 
+            _logger.LogInformation("Cache MISS for current weather. City: {City}", city);
+
             EnsureConfiguration();
 
             var encodedCity = Uri.EscapeDataString(city);
             var requestUrl =
                 $"{_options.BaseUrl}{encodedCity}?unitGroup=metric&include=current&key={_options.ApiKey}&contentType=json";
+
+            _logger.LogInformation("Fetching current weather from provider. City: {City}", city);
 
             using var response = await _httpClient.GetAsync(requestUrl, cancellationToken);
             await EnsureProviderSuccessAsync(response, city, cancellationToken);
@@ -67,10 +79,7 @@ namespace WeatherApiWrapper.Services
 
             var providerResponse = await JsonSerializer.DeserializeAsync<VisualCrossingResponse>(
                 responseStream,
-                new JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true
-                },
+                JsonOptions,
                 cancellationToken);
 
             if (providerResponse?.CurrentConditions is null)
@@ -89,13 +98,12 @@ namespace WeatherApiWrapper.Services
                 FromCache = false
             };
 
-            var currentCacheOptions = new MemoryCacheEntryOptions
-            {
-                AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10),
-                SlidingExpiration = TimeSpan.FromMinutes(5)
-            };
-
-            _cache.Set(cacheKey, result, currentCacheOptions);
+            await SetCachedAsync(
+                cacheKey,
+                result,
+                TimeSpan.FromMinutes(10),
+                TimeSpan.FromMinutes(5),
+                cancellationToken);
 
             return result;
         }
@@ -115,9 +123,12 @@ namespace WeatherApiWrapper.Services
 
             var cacheKey = $"weather:forecast:{city.ToLowerInvariant()}:{days}";
 
-            if (_cache.TryGetValue(cacheKey, out ForecastResponse? cachedForecast) &&
-                cachedForecast is not null)
+            var cachedForecast = await GetCachedAsync<ForecastResponse>(cacheKey, cancellationToken);
+
+            if (cachedForecast is not null)
             {
+                _logger.LogInformation("Cache HIT for forecast. City: {City}, Days: {Days}", city, days);
+
                 return new ForecastResponse
                 {
                     City = cachedForecast.City,
@@ -139,11 +150,15 @@ namespace WeatherApiWrapper.Services
                 };
             }
 
+            _logger.LogInformation("Cache MISS for forecast. City: {City}, Days: {Days}", city, days);
+
             EnsureConfiguration();
 
             var encodedCity = Uri.EscapeDataString(city);
             var requestUrl =
                 $"{_options.BaseUrl}{encodedCity}/next{days}days?unitGroup=metric&include=days&key={_options.ApiKey}&contentType=json";
+
+            _logger.LogInformation("Fetching forecast from provider. City: {City}, Days: {Days}", city, days);
 
             using var response = await _httpClient.GetAsync(requestUrl, cancellationToken);
             await EnsureProviderSuccessAsync(response, city, cancellationToken);
@@ -152,10 +167,7 @@ namespace WeatherApiWrapper.Services
 
             var providerResponse = await JsonSerializer.DeserializeAsync<VisualCrossingResponse>(
                 responseStream,
-                new JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true
-                },
+                JsonOptions,
                 cancellationToken);
 
             if (providerResponse?.Days is null || providerResponse.Days.Count == 0)
@@ -182,13 +194,12 @@ namespace WeatherApiWrapper.Services
                     .ToList()
             };
 
-            var forecastCacheOptions = new MemoryCacheEntryOptions
-            {
-                AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(30),
-                SlidingExpiration = TimeSpan.FromMinutes(10)
-            };
-
-            _cache.Set(cacheKey, result, forecastCacheOptions);
+            await SetCachedAsync(
+                cacheKey,
+                result,
+                TimeSpan.FromMinutes(30),
+                TimeSpan.FromMinutes(10),
+                cancellationToken);
 
             return result;
         }
@@ -201,16 +212,16 @@ namespace WeatherApiWrapper.Services
             if (string.IsNullOrWhiteSpace(city))
                 throw new ArgumentException("City is required.");
 
-            if (date > DateOnly.FromDateTime(DateTime.UtcNow.Date))
-                throw new ArgumentException("Date cannot be in the future.");
-
             city = city.Trim();
 
             var cacheKey = $"weather:history:{city.ToLowerInvariant()}:{date:yyyy-MM-dd}";
 
-            if (_cache.TryGetValue(cacheKey, out HistoryResponse? cachedHistory) &&
-                cachedHistory is not null)
+            var cachedHistory = await GetCachedAsync<HistoryResponse>(cacheKey, cancellationToken);
+
+            if (cachedHistory is not null)
             {
+                _logger.LogInformation("Cache HIT for history. City: {City}, Date: {Date}", city, date);
+
                 return new HistoryResponse
                 {
                     City = cachedHistory.City,
@@ -231,12 +242,16 @@ namespace WeatherApiWrapper.Services
                 };
             }
 
+            _logger.LogInformation("Cache MISS for history. City: {City}, Date: {Date}", city, date);
+
             EnsureConfiguration();
 
             var encodedCity = Uri.EscapeDataString(city);
             var formattedDate = date.ToString("yyyy-MM-dd");
             var requestUrl =
                 $"{_options.BaseUrl}{encodedCity}/{formattedDate}?unitGroup=metric&include=days&key={_options.ApiKey}&contentType=json";
+
+            _logger.LogInformation("Fetching historical weather from provider. City: {City}, Date: {Date}", city, date);
 
             using var response = await _httpClient.GetAsync(requestUrl, cancellationToken);
             await EnsureProviderSuccessAsync(response, city, cancellationToken);
@@ -245,10 +260,7 @@ namespace WeatherApiWrapper.Services
 
             var providerResponse = await JsonSerializer.DeserializeAsync<VisualCrossingResponse>(
                 responseStream,
-                new JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true
-                },
+                JsonOptions,
                 cancellationToken);
 
             var historicalDay = providerResponse?.Days?.FirstOrDefault();
@@ -259,7 +271,7 @@ namespace WeatherApiWrapper.Services
             var result = new HistoryResponse
             {
                 City = city,
-                ResolvedAddress = providerResponse!.ResolvedAddress ?? city,
+                ResolvedAddress = providerResponse?.ResolvedAddress ?? city,
                 RequestedDate = date,
                 RetrievedAtUtc = DateTime.UtcNow,
                 FromCache = false,
@@ -275,13 +287,12 @@ namespace WeatherApiWrapper.Services
                 }
             };
 
-            var historyCacheOptions = new MemoryCacheEntryOptions
-            {
-                AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(12),
-                SlidingExpiration = TimeSpan.FromHours(1)
-            };
-
-            _cache.Set(cacheKey, result, historyCacheOptions);
+            await SetCachedAsync(
+                cacheKey,
+                result,
+                TimeSpan.FromHours(12),
+                TimeSpan.FromHours(1),
+                cancellationToken);
 
             return result;
         }
@@ -337,6 +348,50 @@ namespace WeatherApiWrapper.Services
                 body.Contains("invalid location") ||
                 body.Contains("address not found") ||
                 body.Contains("cannot find");
+        }
+
+        private async Task<T?> GetCachedAsync<T>(string key, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var cachedJson = await _cache.GetStringAsync(key, cancellationToken);
+
+                if (string.IsNullOrWhiteSpace(cachedJson))
+                    return default;
+
+                return JsonSerializer.Deserialize<T>(cachedJson, JsonOptions);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Redis read failed for key: {Key}", key);
+                return default;
+            }
+        }
+
+        private async Task SetCachedAsync<T>(
+            string key,
+            T value,
+            TimeSpan absoluteExpiration,
+            TimeSpan slidingExpiration,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                var serialized = JsonSerializer.Serialize(value, JsonOptions);
+
+                var options = new DistributedCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = absoluteExpiration,
+                    SlidingExpiration = slidingExpiration
+                };
+
+                await _cache.SetStringAsync(key, serialized, options, cancellationToken);
+                _logger.LogInformation("Cache WRITE for key: {Key}", key);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Redis write failed for key: {Key}", key);
+            }
         }
     }
 }
