@@ -1,6 +1,8 @@
 # Weather API Wrapper
 
 A simple ASP.NET Core Web API project that wraps an external weather provider and exposes normalized endpoints for current, forecast, and historical weather data.
+<br>
+Project Idea: [Weather API](https://roadmap.sh/projects/weather-api-wrapper-service)
 
 ## Features
 
@@ -43,11 +45,11 @@ WeatherApiWrapper/
  ├─ Program.cs
  ├─ appsettings.json
  └─ WeatherApiWrapper.csproj
-````
+```
 
 ## Endpoints
 
-Note: The example responses below are sample outputs captured during local testing.
+**Note**: The example responses below are sample outputs captured during local testing.
 
 ### 1. Current Weather
 
@@ -241,6 +243,6 @@ Typical responses:
 
 ## License
 
-This project is licensed under the MIT License.
+This project is licensed under the MIT License. See the [LICENSE](https://github.com/batuhansacofficial/WeatherApiWrapper?tab=MIT-1-ov-file) file for details.
 
 This project was built for learning and portfolio purposes.
