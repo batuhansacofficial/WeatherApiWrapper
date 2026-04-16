@@ -226,7 +226,7 @@ dotnet user-secrets set "WeatherApi:ApiKey" "YOUR_API_KEY"
 ### 3. Run Redis with Docker
 
 ```bash
-docker run -d --name weather-redis -p 6379:6379 redis
+docker run -d -p 6379:6379 redis
 ```
 
 ### 4. Configure `appsettings.json`
