@@ -280,6 +280,34 @@ The test suite covers:
 * API endpoint integration tests
 * Cache behavior across repeated requests
 
+## Running with Docker
+
+Run the API and Redis together using Docker Compose.
+
+### 1. Create a `.env` file
+
+```env
+WEATHER_API_KEY=YOUR_API_KEY
+```
+
+### 2. Start the application
+
+```bash
+docker compose up --build
+```
+
+### 3. Open Swagger
+
+```
+http://localhost:8080/swagger
+```
+
+### 4. Stop containers
+
+```bash
+docker compose down
+```
+
 ## Highlights
 
 * Built a resilient ASP.NET Core Web API
