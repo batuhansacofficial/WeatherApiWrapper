@@ -376,3 +376,5 @@ coverage/
 
 # Optional local publish folder
 publish/
+
+.env
