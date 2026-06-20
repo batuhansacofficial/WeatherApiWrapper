@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using WeatherApiWrapper.Options;
 using WeatherApiWrapper.Services;
 using WeatherApiWrapper.Tests.TestDoubles;
 
@@ -14,6 +15,12 @@ namespace WeatherApiWrapper.Tests
         {
             builder.ConfigureServices(services =>
             {
+                services.Configure<WeatherApiOptions>(options =>
+                {
+                    options.BaseUrl = "https://fake-weather-provider/";
+                    options.ApiKey = "test-key";
+                });
+
                 services.RemoveAll<IWeatherService>();
                 services.RemoveAll<IDistributedCache>();
 
