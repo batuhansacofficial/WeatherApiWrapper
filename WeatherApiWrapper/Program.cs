@@ -1,14 +1,25 @@
 using Microsoft.AspNetCore.HttpLogging;
 using Microsoft.AspNetCore.Mvc;
+using WeatherApiWrapper.Extensions;
 using WeatherApiWrapper.Middleware;
 using WeatherApiWrapper.Models;
 using WeatherApiWrapper.Options;
-using WeatherApiWrapper.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.Configure<WeatherApiOptions>(
-    builder.Configuration.GetSection("WeatherApi"));
+builder.Services
+    .AddOptions<WeatherApiOptions>()
+    .Bind(builder.Configuration.GetSection(WeatherApiOptions.SectionName))
+    .Validate(
+        options => !string.IsNullOrWhiteSpace(options.ApiKey),
+        "WeatherApi:ApiKey is required.")
+    .Validate(
+        options =>
+            Uri.TryCreate(options.BaseUrl, UriKind.Absolute, out var baseUri) &&
+            (baseUri.Scheme == Uri.UriSchemeHttp || baseUri.Scheme == Uri.UriSchemeHttps) &&
+            options.BaseUrl.EndsWith('/'),
+        "WeatherApi:BaseUrl must be an absolute HTTP(S) URL ending with '/'.")
+    .ValidateOnStart();
 
 builder.Services.AddStackExchangeRedisCache(options =>
 {
@@ -16,24 +27,7 @@ builder.Services.AddStackExchangeRedisCache(options =>
     options.InstanceName = "WeatherApiWrapper:";
 });
 
-builder.Services.AddHttpClient<IWeatherService, WeatherService>(client =>
-{
-    client.Timeout = Timeout.InfiniteTimeSpan;
-})
-.AddStandardResilienceHandler(options =>
-{
-    options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(20);
-    options.AttemptTimeout.Timeout = TimeSpan.FromSeconds(8);
-
-    options.Retry.MaxRetryAttempts = 3;
-    options.Retry.Delay = TimeSpan.FromSeconds(2);
-    options.Retry.UseJitter = true;
-
-    options.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(30);
-    options.CircuitBreaker.FailureRatio = 0.5;
-    options.CircuitBreaker.MinimumThroughput = 5;
-    options.CircuitBreaker.BreakDuration = TimeSpan.FromSeconds(15);
-});
+builder.Services.AddWeatherService();
 
 builder.Services.AddHttpLogging(options =>
 {

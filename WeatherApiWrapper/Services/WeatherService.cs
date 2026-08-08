@@ -2,6 +2,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Options;
+using WeatherApiWrapper.Exceptions;
 using WeatherApiWrapper.Models;
 using WeatherApiWrapper.Options;
 
@@ -64,8 +65,6 @@ namespace WeatherApiWrapper.Services
 
             _logger.LogInformation("Cache MISS for current weather. City: {City}", city);
 
-            EnsureConfiguration();
-
             var encodedCity = Uri.EscapeDataString(city);
             var requestUrl =
                 $"{_options.BaseUrl}{encodedCity}?unitGroup=metric&include=current&key={_options.ApiKey}&contentType=json";
@@ -74,16 +73,10 @@ namespace WeatherApiWrapper.Services
 
             using var response = await _httpClient.GetAsync(requestUrl, cancellationToken);
             await EnsureProviderSuccessAsync(response, city, cancellationToken);
-
-            await using var responseStream = await response.Content.ReadAsStreamAsync(cancellationToken);
-
-            var providerResponse = await JsonSerializer.DeserializeAsync<VisualCrossingResponse>(
-                responseStream,
-                JsonOptions,
-                cancellationToken);
+            var providerResponse = await DeserializeProviderResponseAsync(response, cancellationToken);
 
             if (providerResponse?.CurrentConditions is null)
-                throw new InvalidOperationException("Weather data could not be parsed.");
+                throw new WeatherProviderException("External weather provider returned unusable current weather data.");
 
             var result = new WeatherResponse
             {
@@ -125,7 +118,7 @@ namespace WeatherApiWrapper.Services
 
             var cachedForecast = await GetCachedAsync<ForecastResponse>(cacheKey, cancellationToken);
 
-            if (cachedForecast is not null)
+            if (cachedForecast?.Forecasts is not null)
             {
                 _logger.LogInformation("Cache HIT for forecast. City: {City}, Days: {Days}", city, days);
 
@@ -152,8 +145,6 @@ namespace WeatherApiWrapper.Services
 
             _logger.LogInformation("Cache MISS for forecast. City: {City}, Days: {Days}", city, days);
 
-            EnsureConfiguration();
-
             var encodedCity = Uri.EscapeDataString(city);
             var requestUrl =
                 $"{_options.BaseUrl}{encodedCity}/next{days}days?unitGroup=metric&include=days&key={_options.ApiKey}&contentType=json";
@@ -162,16 +153,10 @@ namespace WeatherApiWrapper.Services
 
             using var response = await _httpClient.GetAsync(requestUrl, cancellationToken);
             await EnsureProviderSuccessAsync(response, city, cancellationToken);
-
-            await using var responseStream = await response.Content.ReadAsStreamAsync(cancellationToken);
-
-            var providerResponse = await JsonSerializer.DeserializeAsync<VisualCrossingResponse>(
-                responseStream,
-                JsonOptions,
-                cancellationToken);
+            var providerResponse = await DeserializeProviderResponseAsync(response, cancellationToken);
 
             if (providerResponse?.Days is null || providerResponse.Days.Count == 0)
-                throw new InvalidOperationException("Forecast data could not be parsed.");
+                throw new WeatherProviderException("External weather provider returned unusable forecast data.");
 
             var result = new ForecastResponse
             {
@@ -218,7 +203,7 @@ namespace WeatherApiWrapper.Services
 
             var cachedHistory = await GetCachedAsync<HistoryResponse>(cacheKey, cancellationToken);
 
-            if (cachedHistory is not null)
+            if (cachedHistory?.History is not null)
             {
                 _logger.LogInformation("Cache HIT for history. City: {City}, Date: {Date}", city, date);
 
@@ -244,8 +229,6 @@ namespace WeatherApiWrapper.Services
 
             _logger.LogInformation("Cache MISS for history. City: {City}, Date: {Date}", city, date);
 
-            EnsureConfiguration();
-
             var encodedCity = Uri.EscapeDataString(city);
             var formattedDate = date.ToString("yyyy-MM-dd");
             var requestUrl =
@@ -255,18 +238,12 @@ namespace WeatherApiWrapper.Services
 
             using var response = await _httpClient.GetAsync(requestUrl, cancellationToken);
             await EnsureProviderSuccessAsync(response, city, cancellationToken);
-
-            await using var responseStream = await response.Content.ReadAsStreamAsync(cancellationToken);
-
-            var providerResponse = await JsonSerializer.DeserializeAsync<VisualCrossingResponse>(
-                responseStream,
-                JsonOptions,
-                cancellationToken);
+            var providerResponse = await DeserializeProviderResponseAsync(response, cancellationToken);
 
             var historicalDay = providerResponse?.Days?.FirstOrDefault();
 
             if (historicalDay is null)
-                throw new InvalidOperationException("Historical weather data could not be parsed.");
+                throw new WeatherProviderException("External weather provider returned unusable historical weather data.");
 
             var result = new HistoryResponse
             {
@@ -297,13 +274,27 @@ namespace WeatherApiWrapper.Services
             return result;
         }
 
-        private void EnsureConfiguration()
+        private static async Task<VisualCrossingResponse?> DeserializeProviderResponseAsync(
+            HttpResponseMessage response,
+            CancellationToken cancellationToken)
         {
-            if (string.IsNullOrWhiteSpace(_options.ApiKey))
-                throw new InvalidOperationException("Weather API key is not configured.");
+            try
+            {
+                await using var responseStream = await response.Content.ReadAsStreamAsync(cancellationToken);
 
-            if (string.IsNullOrWhiteSpace(_options.BaseUrl))
-                throw new InvalidOperationException("Weather API base URL is not configured.");
+                return await JsonSerializer.DeserializeAsync<VisualCrossingResponse>(
+                    responseStream,
+                    JsonOptions,
+                    cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex) when (ex is JsonException or HttpRequestException or IOException)
+            {
+                throw new WeatherProviderException("External weather provider returned an unusable response.", ex);
+            }
         }
 
         private async Task EnsureProviderSuccessAsync(
@@ -317,18 +308,17 @@ namespace WeatherApiWrapper.Services
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
 
             _logger.LogWarning(
-                "Provider request failed. City: {City}, StatusCode: {StatusCode}, Body: {Body}",
+                "Provider request failed. City: {City}, StatusCode: {StatusCode}",
                 city,
-                response.StatusCode,
-                errorContent);
+                response.StatusCode);
 
             if (IsLocationNotFound(response.StatusCode, errorContent))
                 throw new KeyNotFoundException($"City '{city}' not found.");
 
-            if (response.StatusCode == HttpStatusCode.BadRequest)
+            if (response.StatusCode == HttpStatusCode.BadRequest && IsInvalidLocationInput(errorContent))
                 throw new ArgumentException($"Invalid city value: '{city}'.");
 
-            throw new HttpRequestException(
+            throw new WeatherProviderException(
                 $"External weather provider returned {(int)response.StatusCode}.");
         }
 
@@ -337,7 +327,7 @@ namespace WeatherApiWrapper.Services
             if (statusCode == HttpStatusCode.NotFound)
                 return true;
 
-            if (string.IsNullOrWhiteSpace(responseBody))
+            if (statusCode != HttpStatusCode.BadRequest || string.IsNullOrWhiteSpace(responseBody))
                 return false;
 
             var body = responseBody.ToLowerInvariant();
@@ -345,9 +335,21 @@ namespace WeatherApiWrapper.Services
             return
                 body.Contains("not found") ||
                 body.Contains("unknown location") ||
-                body.Contains("invalid location") ||
                 body.Contains("address not found") ||
                 body.Contains("cannot find");
+        }
+
+        private static bool IsInvalidLocationInput(string? responseBody)
+        {
+            if (string.IsNullOrWhiteSpace(responseBody))
+                return false;
+
+            var body = responseBody.ToLowerInvariant();
+
+            return
+                body.Contains("invalid city") ||
+                body.Contains("invalid location") ||
+                body.Contains("invalid address");
         }
 
         private async Task<T?> GetCachedAsync<T>(string key, CancellationToken cancellationToken)
@@ -360,6 +362,10 @@ namespace WeatherApiWrapper.Services
                     return default;
 
                 return JsonSerializer.Deserialize<T>(cachedJson, JsonOptions);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -387,6 +393,10 @@ namespace WeatherApiWrapper.Services
 
                 await _cache.SetStringAsync(key, serialized, options, cancellationToken);
                 _logger.LogInformation("Cache WRITE for key: {Key}", key);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex)
             {

@@ -12,10 +12,16 @@ services:
       WeatherApi__ApiKey: ${WEATHER_API_KEY}
       ConnectionStrings__Redis: redis:6379
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
 
   redis:
     image: redis:8.8.1-alpine
     container_name: weather-redis-compose
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5

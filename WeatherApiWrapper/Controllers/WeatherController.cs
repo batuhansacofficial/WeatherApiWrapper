@@ -6,6 +6,7 @@ namespace WeatherApiWrapper.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Produces("application/json")]
     public class WeatherController : ControllerBase
     {
         private readonly IWeatherService _weatherService;
@@ -16,6 +17,11 @@ namespace WeatherApiWrapper.Controllers
         }
 
         [HttpGet("current")]
+        [ProducesResponseType(typeof(WeatherResponse), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status404NotFound)]
+        [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status502BadGateway)]
+        [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status504GatewayTimeout)]
         public async Task<IActionResult> GetCurrent(
             [FromQuery] string? city,
             CancellationToken cancellationToken)
@@ -28,6 +34,11 @@ namespace WeatherApiWrapper.Controllers
         }
 
         [HttpGet("forecast")]
+        [ProducesResponseType(typeof(ForecastResponse), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status404NotFound)]
+        [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status502BadGateway)]
+        [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status504GatewayTimeout)]
         public async Task<IActionResult> GetForecast(
             [FromQuery] string? city,
             [FromQuery] int days = 3,
@@ -44,6 +55,11 @@ namespace WeatherApiWrapper.Controllers
         }
 
         [HttpGet("history")]
+        [ProducesResponseType(typeof(HistoryResponse), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status404NotFound)]
+        [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status502BadGateway)]
+        [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status504GatewayTimeout)]
         public async Task<IActionResult> GetHistory(
             [FromQuery] string? city,
             [FromQuery] DateOnly date,

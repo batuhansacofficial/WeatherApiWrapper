@@ -1,4 +1,7 @@
 ﻿using System.Net;
+using Polly.CircuitBreaker;
+using Polly.Timeout;
+using WeatherApiWrapper.Exceptions;
 using WeatherApiWrapper.Models;
 
 namespace WeatherApiWrapper.Middleware
@@ -21,6 +24,10 @@ namespace WeatherApiWrapper.Middleware
             try
             {
                 await _next(context);
+            }
+            catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -61,9 +68,12 @@ namespace WeatherApiWrapper.Middleware
             {
                 ArgumentException ex => ((int)HttpStatusCode.BadRequest, ex.Message, LogLevel.Warning),
                 KeyNotFoundException ex => ((int)HttpStatusCode.NotFound, ex.Message, LogLevel.Warning),
+                TimeoutRejectedException _ => ((int)HttpStatusCode.GatewayTimeout, "The external weather provider timed out.", LogLevel.Error),
+                BrokenCircuitException _ => ((int)HttpStatusCode.BadGateway, "The external weather provider is temporarily unavailable.", LogLevel.Error),
+                WeatherProviderException _ => ((int)HttpStatusCode.BadGateway, "Failed to fetch weather data from external provider.", LogLevel.Error),
                 HttpRequestException _ => ((int)HttpStatusCode.BadGateway, "Failed to fetch weather data from external provider.", LogLevel.Error),
-                InvalidOperationException ex => ((int)HttpStatusCode.InternalServerError, ex.Message, LogLevel.Error),
-                _ => ((int)HttpStatusCode.InternalServerError, "An unexpected error occurred.", LogLevel.Error)
+                InvalidOperationException _ => ((int)HttpStatusCode.InternalServerError, "An unexpected server error occurred.", LogLevel.Error),
+                _ => ((int)HttpStatusCode.InternalServerError, "An unexpected server error occurred.", LogLevel.Error)
             };
         }
     }

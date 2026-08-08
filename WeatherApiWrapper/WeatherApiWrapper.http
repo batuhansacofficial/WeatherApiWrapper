@@ -1,6 +1,16 @@
 @WeatherApiWrapper_HostAddress = http://localhost:5158
 
-GET {{WeatherApiWrapper_HostAddress}}/weatherforecast/
+GET {{WeatherApiWrapper_HostAddress}}/api/weather/current?city=Istanbul
+Accept: application/json
+
+###
+
+GET {{WeatherApiWrapper_HostAddress}}/api/weather/forecast?city=Istanbul&days=3
+Accept: application/json
+
+###
+
+GET {{WeatherApiWrapper_HostAddress}}/api/weather/history?city=Istanbul&date=2026-04-15
 Accept: application/json
 
 ###

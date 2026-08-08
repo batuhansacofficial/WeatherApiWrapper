@@ -18,9 +18,9 @@ concurrency:
 
 jobs:
   build-and-test:
-    name: Build and test
+    name: Build, test, and audit
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     env:
       DOTNET_NOLOGO: true
@@ -39,12 +39,54 @@ jobs:
         run: dotnet --info
 
       - name: Restore dependencies
-        run: dotnet restore WeatherApiWrapper.slnx
+        run: dotnet restore WeatherApiWrapper.slnx -p:NuGetAuditMode=all "-warnaserror:NU1901;NU1902;NU1903;NU1904"
+
+      - name: Verify formatting
+        run: dotnet format WeatherApiWrapper.slnx --verify-no-changes --no-restore
 
       - name: Build
-        run: dotnet build WeatherApiWrapper.slnx --configuration Release --no-restore
+        run: dotnet build WeatherApiWrapper.slnx --configuration Release --no-restore --warnaserror
 
-      - name: Test
-        run: dotnet test WeatherApiWrapper.slnx --configuration Release --no-build --verbosity normal
+      - name: Test with coverage
+        run: >-
+          dotnet test WeatherApiWrapper.slnx
+          --configuration Release
+          --no-build
+          --collect "XPlat Code Coverage"
+          --results-directory TestResults
+          --logger "trx;LogFileName=test-results.trx"
+          --verbosity normal
         env:
           WeatherApi__ApiKey: test-key
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results
+          path: TestResults/**/*.trx
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-report
+          path: TestResults/**/coverage.cobertura.xml
+          if-no-files-found: error
+          retention-days: 14
+
+  docker-build:
+    name: Docker Compose build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      WEATHER_API_KEY: ci-placeholder
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Build declared Compose service
+        run: docker compose build --pull weatherapiwrapper
