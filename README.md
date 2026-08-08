@@ -1,5 +1,9 @@
 # Weather API Wrapper
 
+[![CI](https://github.com/batuhansacofficial/WeatherApiWrapper/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/batuhansacofficial/WeatherApiWrapper/actions/workflows/ci.yml)
+[![.NET 10](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/download/dotnet/10.0)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE.txt)
+
 A resilient ASP.NET Core Web API that aggregates weather data from an external provider and exposes normalized current, forecast, and historical weather endpoints.
 
 ## Features
@@ -11,6 +15,8 @@ A resilient ASP.NET Core Web API that aggregates weather data from an external p
 - Cache-aside pattern
 - Centralized exception handling middleware
 - Standardized API error responses
+- Fail-fast provider configuration validation
+- Explicit caller-cancellation and upstream-failure semantics
 - HTTP resilience with retry, timeout, and circuit breaker
 - Request logging
 - Swagger / OpenAPI support
@@ -19,20 +25,39 @@ A resilient ASP.NET Core Web API that aggregates weather data from an external p
 
 ## Tech Stack
 
-- ASP.NET Core Web API
-- .NET
-- Redis
+- ASP.NET Core 10 Web API
+- .NET 10
+- Redis 8.8
 - HttpClient
 - xUnit
 - Moq
 - Docker
 - Swagger / OpenAPI
+- GitHub Actions
+
+## API Preview
+
+The screenshots use deterministic local provider data and an isolated Redis instance. No provider credentials are included.
+
+### Swagger Endpoint Overview
+
+![Swagger endpoint overview](docs/images/swagger-overview.png)
+
+### Cached Current-Weather Response
+
+![Swagger current-weather cache hit](docs/images/swagger-current-cache-hit.png)
+
+### Standardized Validation Error
+
+![Swagger validation error response](docs/images/swagger-validation-error.png)
 
 ## Project Structure
 
 ```text
 WeatherApiWrapper/
  ├─ Controllers/
+ ├─ Exceptions/
+ ├─ Extensions/
  ├─ Middleware/
  ├─ Models/
  ├─ Options/
@@ -43,10 +68,17 @@ WeatherApiWrapper/
 
 WeatherApiWrapper.Tests/
  ├─ Controllers/
+ ├─ Middleware/
  ├─ Services/
  ├─ TestDoubles/
  ├─ CustomWebApplicationFactory.cs
+ ├─ ResiliencePipelineTests.cs
  └─ WeatherApiIntegrationTests.cs
+
+docs/images/
+ ├─ swagger-overview.png
+ ├─ swagger-current-cache-hit.png
+ └─ swagger-validation-error.png
 ```
 
 ## Endpoints
@@ -226,7 +258,7 @@ dotnet user-secrets set "WeatherApi:ApiKey" "YOUR_API_KEY"
 ### 3. Run Redis with Docker
 
 ```bash
-docker run -d -p 6379:6379 redis
+docker run -d --name weather-redis -p 6379:6379 redis:8.8.1-alpine
 ```
 
 ### 4. Configure `appsettings.json`
@@ -245,7 +277,7 @@ docker run -d -p 6379:6379 redis
 ### 5. Run the API
 
 ```bash
-dotnet run
+dotnet run --project WeatherApiWrapper
 ```
 
 ### 6. Open Swagger
@@ -267,18 +299,38 @@ This project includes both unit tests and integration tests.
 Run all tests with:
 
 ```bash
-dotnet test
+dotnet test WeatherApiWrapper.slnx --configuration Release
 ```
 
 ## Test Coverage
 
-The test suite covers:
+The current verified suite contains 57 tests and measures 95.6% line coverage and 75.4% branch coverage. The suite covers:
 
-* Controller validation behavior
-* Service cache hit/miss behavior
-* Provider error mapping
-* API endpoint integration tests
-* Cache behavior across repeated requests
+- Current, forecast, and historical mapping and caching behavior
+- Redis graceful fallback and request-cancellation propagation
+- Provider HTTP, malformed-payload, timeout, and open-circuit classification
+- Controller validation and ASP.NET model-binding errors
+- Standardized 400, 404, 500, 502, and 504 API contracts
+- Startup validation for required provider configuration
+- The dependency-injection configured resilience pipeline
+
+Generate a local Cobertura report with:
+
+```bash
+dotnet test WeatherApiWrapper.slnx --configuration Release --collect:"XPlat Code Coverage" --results-directory TestResults
+```
+
+CI uploads the test results and coverage report as a downloadable workflow artifact. No arbitrary coverage threshold is enforced.
+
+## Continuous Integration
+
+Every push and pull request to `master` verifies:
+
+- NuGet restore with transitive vulnerability auditing
+- Formatting
+- Release build with warnings treated as errors
+- Tests with Cobertura coverage collection
+- The Docker Compose build on Linux
 
 ## Running with Docker
 
@@ -318,8 +370,12 @@ docker compose down
 * Added unit and integration tests
 * Added resilience policies for outbound HTTP requests
 
+## Public Deployment Note
+
+This repository is configured for local development and portfolio demonstration. Authentication and rate limiting are intentionally not included. Add appropriate access control, request limits, secret management, and Redis network restrictions before exposing an instance that uses a real provider key to the public internet.
+
 ## License
 
-This project is licensed under the MIT License. See the [LICENSE](https://github.com/batuhansacofficial/WeatherApiWrapper?tab=MIT-1-ov-file) file for details.
+This project is licensed under the MIT License. See [LICENSE.txt](LICENSE.txt) for details.
 
 This project was built for learning and portfolio purposes.
